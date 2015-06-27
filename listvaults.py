@@ -2,6 +2,7 @@ import os
 import sys
 import csv
 import logging
+import pprint
 
 import credentials
 
@@ -21,7 +22,6 @@ def vaults(credentials_path):
         cred[credentials.secret_header])
 
     vs = con.list_vaults()
-    print vs[0].retrieve_inventory()
     
     return vs
 
@@ -38,6 +38,6 @@ if __name__ == '__main__':
     if len(sys.argv) != 2:
         _print_usage()
     else:
-        print vaults(*sys.argv[1:])
+        pprint.pprint(vaults(*sys.argv[1:]))
 
 

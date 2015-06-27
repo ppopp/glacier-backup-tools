@@ -3,6 +3,7 @@ import sys
 import csv
 import time
 import logging
+import socket
 
 import boto.glacier
 import boto.glacier.layer2
@@ -15,11 +16,17 @@ _max_retries = 10
 _retry_sleep = 60
 
 _logger = logging.getLogger(__name__)
-_estimated_bytes_per_second = 500 * 1024
+_estimated_bytes_per_second = 650 * 1024
 
 class Error(Exception):
     pass
 
+def _expected_duration(filesize):
+    expected_time = filesize / float(_estimated_bytes_per_second)
+    mins, secs = divmod(expected_time, 60)
+    hours, mins = divmod(mins, 60)
+    timestr = '%02d:%02d:%02d' % (hours, mins, secs)
+    return timestr
 
 def upload(
     credentials_path, 
@@ -69,15 +76,27 @@ def _upload(credentials_path, vault_name, data_path):
     vault = con.get_vault(vault_name)
 
     # upload file
-    _logger.info('beginning upload of {0} to {1} in {2}'.format(data_path, vault_name, _region))
+    description = socket.gethostname() + ':' + os.path.basename(data_path)
+    _logger.info('beginning upload of {0} to {1} in {2} with description "{3}"'.format(
+        data_path, 
+        vault_name, 
+        _region, 
+        description))
+
+    timestr = _expected_duration(filesize)
+    _logger.info('expected upload time for {0} is {1}'.format(data_path, timestr))
+
     if do_multipart:
         vault.concurrent_create_archive_from_file(
             data_path, 
-            "multipart upload: " + data_path,
+            description,
             num_threads=2)
     else:
-        vault.create_archive_from_file(data_path)
+        vault.create_archive_from_file(
+            data_path,
+            description=description)
     _logger.info('completed upload of {0} to {1} in {2}'.format(data_path, vault_name, _region))
+
 
 def _upload_paths(credentials_path, vault_name, paths):
     total_filesize = sum(map(os.path.getsize, paths))
@@ -85,10 +104,7 @@ def _upload_paths(credentials_path, vault_name, paths):
         'beginning upload of {0} files totaling {1} bytes'.format(
             len(paths), total_filesize))
 
-    expected_time = total_filesize / float(_estimated_bytes_per_second)
-    mins, secs = divmod(expected_time, 60)
-    hours, mins = divmod(mins, 60)
-    timestr = '%02d:%02d:%02d' % (hours, mins, secs)
+    timestr = _expected_duration(total_filesize)
     _logger.info('expected upload time {0}'.format(timestr))
 
 
@@ -112,5 +128,12 @@ if __name__ == '__main__':
         cred_path = sys.argv[1]
         vault = sys.argv[2]
         # upload all paths
-        _upload_paths(cred_path, vault, sys.argv[3:])
+        _logger.info('****************BEGIN******************************')
+        try:
+            _upload_paths(cred_path, vault, sys.argv[3:])
+        except BaseException, e:
+            _logger.error('stopped with exception {0}: {1}'.format(type(e), e))
+            raise
+        _logger.info('****************COMPLETE******************************')
+
 
